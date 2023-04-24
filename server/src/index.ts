@@ -8,7 +8,11 @@ import {
     SetupServerMessage,
     Team,
 } from "../../models";
-import { instruments as initialInstruments } from "./instruments";
+import {
+    Instrument,
+    percussion as initialPercussion,
+    instruments as initialInstruments,
+} from "./instruments";
 import { prompts as initialPrompts } from "./prompts";
 import { zip } from "./zip";
 
@@ -27,7 +31,8 @@ const server = new WebSocketServer({ port });
 interface User {
     team: string;
     prompt: string;
-    instrument: string;
+    instrumentName: string;
+    instrument: Instrument;
 }
 
 const joined = new Map<WebSocket, User>();
@@ -37,8 +42,28 @@ const teams: Team[] = ["red", "green", "blue", "yellow"];
 let lastTeam = 0;
 let prompts = [...initialPrompts];
 let promptMap = new Map<Team, string>();
-let instrumentMap = new Map<Team, string[]>();
-let sequences = new Map<Team, Map<WebSocket, [string, boolean[]]>>();
+let instrumentMap = new Map<
+    Team,
+    {
+        instruments: Record<string, Instrument>;
+        percussion: Record<string, Instrument>;
+    }
+>();
+let sequences = new Map<Team, Map<WebSocket, [Instrument, boolean[]]>>();
+
+const minNote = 24;
+const maxNote = 72;
+
+const randomizeInstruments = (): Record<string, Instrument> =>
+    Object.fromEntries(
+        Object.entries(initialInstruments).map(([name, instrument]) => [
+            name,
+            {
+                ...instrument,
+                note: Math.floor(Math.random() * (maxNote - minNote + 1)) + minNote,
+            },
+        ])
+    );
 
 const newGame = () => {
     console.log("Starting new game");
@@ -60,7 +85,10 @@ const newGame = () => {
 
     instrumentMap = new Map();
     for (const team of teams) {
-        instrumentMap.set(team, [...initialInstruments]);
+        instrumentMap.set(team, {
+            percussion: { ...initialPercussion },
+            instruments: randomizeInstruments(),
+        });
     }
 
     sequences = new Map();
@@ -122,11 +150,11 @@ Max?.addHandler("instruments", async (team: Team) => {
 
     const teamInstruments = [...joined]
         .filter(([ws, user]) => user.team === team)
-        .map(([ws, user]) => sequences.get(team)!.get(ws)![0])
-        .map((instrument) => initialInstruments.indexOf(instrument));
+        .map(([ws, user]) => sequences.get(team)!.get(ws)![0]);
 
     for (let i = 0; i < teamInstruments.length; i++) {
-        Max.outlet("instruments", i, teamInstruments[i]);
+        const instrument = teamInstruments[i];
+        Max.outlet("instruments", i, instrument.channel, instrument.program, instrument.note);
     }
 });
 
@@ -135,6 +163,12 @@ const endGame = () => {
 
     for (const ws of joined.keys()) {
         ws.send(JSON.stringify({ type: "endGame" } satisfies EndGameServerMessage));
+    }
+
+    for (const team of teams) {
+        console.log("================");
+        console.log(team, "team:");
+        console.log("Prompt:", promptMap.get(team)!);
     }
 };
 
@@ -146,17 +180,25 @@ const nextTeam = () => {
 
 const promptForTeam = (team: Team) => promptMap.get(team)!;
 
-const nextInstrument = (team: Team) => {
-    const instruments = instrumentMap.get(team)!;
-    const index = Math.floor(Math.random() * instruments.length);
-    const instrument = instruments[index];
-    instruments.splice(index, 1);
+const percussionProbability = 0.75;
 
-    if (instruments.length === 0) {
-        instrumentMap.set(team, [...initialInstruments]);
+const nextInstrument = (team: Team): [string, Instrument] => {
+    const [kind, initial] =
+        Math.random() < percussionProbability
+            ? ["percussion" as const, initialPercussion]
+            : ["instruments" as const, randomizeInstruments()];
+
+    const instruments = instrumentMap.get(team)![kind];
+    const index = Math.floor(Math.random() * Object.keys(instruments).length);
+    const instrumentName = Object.keys(instruments)[index];
+    const instrument = instruments[instrumentName];
+    delete instruments[instrumentName];
+
+    if (Object.keys(instruments).length === 0) {
+        instrumentMap.get(team)![kind] = { ...initial };
     }
 
-    return instrument;
+    return [instrumentName, instrument];
 };
 
 server.on("connection", (ws) => {
@@ -164,7 +206,8 @@ server.on("connection", (ws) => {
 
     let team: Team;
     let prompt: string;
-    let instrument: string;
+    let instrumentName: string;
+    let instrument: Instrument;
     ws.on("message", (data) => {
         const message: ClientMessage = JSON.parse(data.toString());
 
@@ -172,11 +215,12 @@ server.on("connection", (ws) => {
             case "join":
                 team = nextTeam();
                 prompt = promptForTeam(team);
-                instrument = nextInstrument(team);
+                [instrumentName, instrument] = nextInstrument(team);
 
                 joined.set(ws, {
                     team,
                     prompt,
+                    instrumentName,
                     instrument,
                 });
 
@@ -185,7 +229,7 @@ server.on("connection", (ws) => {
                         type: "setup",
                         team,
                         prompt,
-                        instrument,
+                        instrument: instrumentName,
                     } satisfies SetupServerMessage)
                 );
 
