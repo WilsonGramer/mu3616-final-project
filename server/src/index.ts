@@ -75,7 +75,7 @@ Max?.addHandler("new-game", () => {
     newGame();
 });
 
-const gameLengthMs = secondsToMilliseconds(4500);
+const gameLengthMs = secondsToMilliseconds(120);
 
 let gameStarted = false;
 
@@ -156,6 +156,9 @@ const endGame = () => {
         console.log(team, "team:");
         console.log("Prompt:", promptMap.get(team)!);
     }
+
+    console.log("================");
+    console.log("DON'T FORGET TO ASK TEAMS WHICH TEMPO THEY WANT!");
 };
 
 const nextTeam = () => {
