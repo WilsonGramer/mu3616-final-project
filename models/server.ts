@@ -4,7 +4,7 @@ export interface SetupServerMessage {
     type: "setup";
     team: Team;
     prompt: string;
-    instrument: string;
+    instrument: { name: string; pitched: boolean };
 }
 
 export type Team = "red" | "green" | "blue" | "yellow";

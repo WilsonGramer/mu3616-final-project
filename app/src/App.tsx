@@ -1,14 +1,23 @@
 import { CircularProgress } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import Countdown from "react-countdown";
-import { JoinClientMessage, SequenceClientMessage, ServerMessage, Team } from "../../models";
+import {
+    JoinClientMessage,
+    NewInstrumentClientMessage,
+    Pitch,
+    PitchClientMessage,
+    SequenceClientMessage,
+    ServerMessage,
+    Team,
+} from "../../models";
 import { produce } from "immer";
 
 interface PlayerState {
     gameOver: boolean;
     team: Team;
     prompt: string;
-    instrument: string;
+    instrument: { name: string; pitched: boolean };
+    pitch: Pitch;
     sequence: boolean[];
 }
 
@@ -48,13 +57,16 @@ export const App = () => {
 
                 switch (data.type) {
                     case "setup":
-                        setPlayerState({
+                        setPlayerState((playerState) => ({
                             gameOver: false,
                             team: data.team,
                             prompt: data.prompt,
                             instrument: data.instrument,
-                            sequence: new Array(16).fill(() => Math.random() > 0.5).map((f) => f()),
-                        });
+                            sequence:
+                                playerState?.sequence ??
+                                new Array(16).fill(() => Math.random() > 0.5).map((f) => f()),
+                            pitch: playerState?.pitch ?? 2,
+                        }));
 
                         break;
                     case "beginGame":
@@ -72,6 +84,21 @@ export const App = () => {
             };
         })();
     }, [webSocket]);
+
+    useEffect(() => {
+        if (!webSocket || !playerState) {
+            return;
+        }
+
+        if (webSocket.readyState !== WebSocket.OPEN) return;
+
+        webSocket.send(
+            JSON.stringify({
+                type: "pitch",
+                pitch: playerState.pitch,
+            } satisfies PitchClientMessage)
+        );
+    }, [webSocket, playerState?.pitch]);
 
     useEffect(() => {
         if (!webSocket || !playerState) {
@@ -108,7 +135,7 @@ export const App = () => {
                     teamColors[playerState.team].secondary
                 } ${teamColors[playerState.team].text}`}
             >
-                <div className="w-full flex flex-col items-center">
+                <div className="w-full flex flex-col gap-2 items-center">
                     <div className="w-full flex flex-row items-center justify-between">
                         <div className="capitalize font-semibold">{playerState.team} team</div>
 
@@ -125,9 +152,59 @@ export const App = () => {
 
                     <p>
                         Your instrument:{" "}
-                        <span className="font-semibold">{playerState.instrument}</span>
+                        <span className="font-semibold">{playerState.instrument.name}</span>
                     </p>
-                    <p className="italic">{playerState.prompt}</p>
+
+                    <div className="flex gap-2">
+                        <button
+                            className={`${
+                                teamColors[playerState.team].text
+                            } px-2 rounded-lg bg-white`}
+                            onClick={() => {
+                                if (!webSocket) {
+                                    return;
+                                }
+
+                                if (webSocket.readyState !== WebSocket.OPEN) return;
+
+                                webSocket.send(
+                                    JSON.stringify({
+                                        type: "newInstrument",
+                                    } satisfies NewInstrumentClientMessage)
+                                );
+                            }}
+                        >
+                            New instrument
+                        </button>
+
+                        {playerState.instrument.pitched ? (
+                            <form onSubmit={(e) => e.preventDefault()}>
+                                <label htmlFor="pitch">Pitch: </label>
+                                <select
+                                    name="Pitch"
+                                    value={playerState.pitch}
+                                    onChange={(e) => {
+                                        setPlayerState(
+                                            produce((playerState) => {
+                                                if (!playerState) return;
+
+                                                playerState.pitch = parseInt(
+                                                    e.target.value
+                                                ) as Pitch;
+                                            })
+                                        );
+                                    }}
+                                >
+                                    <option value={0}>Lowest</option>
+                                    <option value={1}>Low</option>
+                                    <option value={2}>High</option>
+                                    <option value={3}>Highest</option>
+                                </select>
+                            </form>
+                        ) : null}
+                    </div>
+
+                    <p className="italic text-center">{playerState.prompt}</p>
                 </div>
 
                 <div className="w-full flex flex-row items-center justify-center bg-gray-800 p-1 gap-1 lg:p-2 lg:gap-2">

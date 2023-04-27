@@ -3,7 +3,8 @@
     "private": true,
     "scripts": {
         "start": "node build/server.js",
-        "dev": "node util/qrcode.js & ts-node src/index.ts",
+        "qrcode": "node util/qrcode.js",
+        "dev": "npm run qrcode & ts-node src/index.ts",
         "build": "esbuild src/index.ts --bundle --external:max-api --platform=node --outfile=build/server.js"
     },
     "devDependencies": {
