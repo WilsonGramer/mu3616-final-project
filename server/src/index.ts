@@ -11,7 +11,6 @@ import {
 } from "../../models";
 import { Instrument, instruments as initialInstruments } from "./instruments";
 import { prompts as initialPrompts } from "./prompts";
-import { zip } from "./zip";
 
 let Max: typeof import("max-api").default | undefined = undefined;
 try {
@@ -78,8 +77,11 @@ Max?.addHandler("new-game", () => {
 
 const gameLengthMs = secondsToMilliseconds(4500);
 
+let gameStarted = false;
+
 const beginGame = () => {
     console.log("Beginning game");
+    gameStarted = true;
 
     const endTime = addMilliseconds(new Date(), gameLengthMs);
 
@@ -143,6 +145,7 @@ Max?.addHandler("play", async (team: Team, index: number) => {
 
 const endGame = () => {
     console.log("Ending game");
+    gameStarted = false;
 
     for (const [ws] of joined) {
         ws.send(JSON.stringify({ type: "endGame" } satisfies EndGameServerMessage));
@@ -172,8 +175,6 @@ const nextInstrument = (
     const instrumentName = Object.keys(instruments)[index];
     const instrument = instruments[instrumentName];
 
-    console.log("new instrument:", instrument);
-
     delete instruments[instrumentName];
 
     if (previousInstrument != null) {
@@ -185,6 +186,24 @@ const nextInstrument = (
     }
 
     return [instrumentName, instrument];
+};
+
+const playSingleNote = (team: Team, instrument: Instrument, pitch: number) => {
+    if (!Max) return;
+
+    const teamKey = keyMap.get(team)!;
+
+    const note = instrument.note ?? teamKey + pitch * 12 + 24;
+
+    Max.outlet("program", instrument.program, instrument.channel);
+    Max.outlet("note", note, 127, instrument.channel);
+
+    setTimeout(() => {
+        if (!Max) return;
+
+        Max.outlet("program", instrument.program, instrument.channel);
+        Max.outlet("note", note, 0, instrument.channel);
+    }, 500);
 };
 
 server.on("connection", (ws) => {
@@ -249,6 +268,10 @@ server.on("connection", (ws) => {
                 sequence = message.sequence;
                 update();
 
+                if (gameStarted) {
+                    playSingleNote(team, instrument, pitch);
+                }
+
                 break;
         }
     });
@@ -259,7 +282,5 @@ server.on("connection", (ws) => {
         if (existing !== -1) {
             joined.splice(existing, 1);
         }
-
-        console.log(joined.length);
     });
 });
